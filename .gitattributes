@@ -1,0 +1,13 @@
+# 行尾固定：跨平台克隆行为一致
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.html text eol=lf
+*.lock text eol=lf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+LICENSE text eol=lf
