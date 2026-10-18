@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 题库测试台</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171e2e; --panel2:#1c2438; --line:#2a3550;
+    --tx:#e7ecf5; --tx2:#93a0b8; --acc:#4f8ef7; --ok:#22c55e; --bad:#ef4444;
+    --warn:#f59e0b; --pur:#a78bfa; --mut:#64748b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px 20px 60px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--tx2);font-size:12.5px}
+  .spacer{flex:1}
+  .modebar{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .modebar span{padding:6px 16px;cursor:pointer;font-size:13px;color:var(--tx2);background:var(--panel2)}
+  .modebar span.on{background:var(--acc);color:#fff;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 12px;color:var(--tx)}
+  .card h2 .n{color:var(--tx2);font-weight:400;font-size:12px;margin-left:8px}
+  label{display:block;font-size:12.5px;color:var(--tx2);margin:10px 0 4px}
+  label .req{color:var(--bad);margin-left:2px}
+  input[type=text],input[type=password],input[type=number],select,textarea{
+    width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--tx);font-size:13.5px;outline:none}
+  textarea{resize:vertical;min-height:64px;font-size:12.8px;line-height:1.5;font-family:inherit}
+  input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+  input.req-empty{border-color:var(--bad);background:rgba(239,68,68,.06)}
+  .row{display:flex;gap:10px}
+  .row>div{flex:1}
+  .btn{padding:9px 18px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--tx);cursor:pointer;font-size:13.5px}
+  .btn:hover{border-color:var(--acc)}
+  .btn.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  .btn.danger{background:transparent;border-color:var(--bad);color:var(--bad)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--mut);margin-top:4px}
+  .check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--tx2)}
+  .check input{width:auto}
+  /* 难度配比预设卡 */
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media(max-width:560px){.presets{grid-template-columns:1fr}}
+  .preset{border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;background:var(--panel2)}
+  .preset:hover{border-color:var(--acc)}
+  .preset.on{border-color:var(--acc);background:rgba(79,142,247,.14)}
+  .preset b{font-size:13.5px;display:block}
+  .preset .rat{font-size:11.5px;color:var(--tx2);margin-top:2px;font-family:Consolas,monospace}
+  .custom5{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+  .custom5 label{margin:0;text-align:center;font-size:11.5px}
+  .preview{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--panel2);
+    border:1px dashed var(--line);font-size:12.8px;color:var(--tx2)}
+  .preview b{color:var(--tx)}
+  .preview .lack{color:var(--warn)}
+  .sumline{margin-top:8px;font-size:12.3px;padding:6px 10px;border-radius:8px}
+  .sumline.ok{color:var(--ok);background:rgba(34,197,94,.08)}
+  .sumline.adj{color:var(--warn);background:rgba(245,158,11,.08)}
+  /* 状态条 */
+  .statbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--mut)}
+  .dot.run{background:var(--ok);animation:pulse 1.2s infinite}
+  .dot.err{background:var(--bad)}
+  .dot.fin{background:var(--acc)}
+  @keyframes pulse{50%{opacity:.35}}
+  .mono{font-family:Consolas,monospace;font-size:12.5px}
+  .bar{height:10px;border-radius:6px;background:var(--panel2);overflow:hidden;border:1px solid var(--line)}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),#7db3ff);width:0;transition:width .5s}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .chip{padding:5px 12px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);font-size:12.5px;color:var(--tx2)}
+  .chip b{color:var(--tx);font-size:14px;margin-left:4px}
+  .chip.ok b{color:var(--ok)} .chip.bad b{color:var(--bad)} .chip.to b{color:var(--warn)} .chip.er b{color:var(--pur)}
+  table{width:100%;border-collapse:collapse;font-size:12.8px}
+  th{color:var(--tx2);text-align:left;font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
+  td{padding:6px 8px;border-bottom:1px solid rgba(42,53,80,.5)}
+  tr.running td{color:var(--tx2)}
+  .badge{display:inline-block;padding:1px 9px;border-radius:6px;font-size:11.5px}
+  .v-pass{background:rgba(34,197,94,.15);color:var(--ok)}
+  .v-wrong_answer{background:rgba(239,68,68,.13);color:var(--bad)}
+  .v-timeout{background:rgba(245,158,11,.15);color:var(--warn)}
+  .v-compile_error{background:rgba(167,139,250,.15);color:var(--pur)}
+  .v-error{background:rgba(239,68,68,.08);color:var(--bad);border:1px solid rgba(239,68,68,.4)}
+  .v-other{background:rgba(100,116,139,.15);color:var(--mut)}
+  .tier{font-size:11px;color:var(--tx2)}
+  .tasksbox{max-height:340px;overflow:auto;margin-top:8px}
+  .ratebar{display:inline-block;width:90px;height:7px;border-radius:4px;background:var(--panel2);vertical-align:middle;overflow:hidden}
+  .ratebar>i{display:block;height:100%;background:var(--ok)}
+  #testResult{font-size:12.5px;margin-top:8px;min-height:18px}
+  #testResult.ok{color:var(--ok)} #testResult.bad{color:var(--bad)}
+  #errline{color:var(--bad);font-size:12.5px;margin-top:8px;min-height:16px}
+  #noteLine{color:var(--warn);font-size:12.5px;margin-top:8px;min-height:16px}
+  .empty{color:var(--mut);font-size:12.5px;padding:10px 4px}
+  footer{color:var(--mut);font-size:11.5px;margin-top:6px;line-height:1.7}
+  .hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🧪 AI 题库测试台</h1>
+    <span class="sub">按难度配比随机组卷 · 本地判分 · 结果落盘 <span class="mono">results/run-*/</span></span>
+    <span class="spacer"></span>
+    <div class="modebar" id="modebar">
+      <span data-m="basic" class="on">默认模式</span>
+      <span data-m="expert">专家模式</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- ① 连接模型 -->
+    <div class="card">
+      <h2>① 连接模型 <span class="n">协议自动识别，无需选择</span></h2>
+      <label>模型名 <span class="req">*</span></label>
+      <input id="model" type="text" placeholder="例如 glm-5.3、deepseek-chat">
+      <label>API Key <span class="req">*</span></label>
+      <input id="apikey" type="password" placeholder="sk-...（只存内存，不写盘）">
+      <label>接口地址 <span class="req">*</span></label>
+      <input id="baseurl" type="text" placeholder="如 https://open.bigmodel.cn/api/anthropic 或 https://api.deepseek.com/v1">
+      <div class="hint">OpenAI 兼容与 Anthropic 兼容端点均可，系统按地址自动识别并验证。</div>
+      <div style="margin-top:12px"><button class="btn" id="btnTest">测试连接</button></div>
+      <div id="testResult"></div>
+    </div>
+
+    <!-- ② 出卷 -->
+    <div class="card">
+      <h2>② 出卷 <span class="n" id="poolInfo"></span></h2>
+      <div class="row" style="margin-bottom:10px">
+        <div style="max-width:340px">
+          <label>试卷域（各域独立难度尺，不跨域混卷）</label>
+          <select id="domain">
+            <option value="algo" selected>算法（LiveCodeBench · 五档）</option>
+            <option value="java_fix">Java 修码（Defects4J · 三档）</option>
+            <option value="py_fix">Python 修码（BugsInPy · 三档）</option>
+            <option value="perf">性能优化（SWE-Perf · 三档）</option>
+          </select>
+        </div>
+        <div class="hint" id="domainHint" style="align-self:end;margin:0 0 6px"></div>
+      </div>
+      <div class="row">
+        <div><label>总题量</label><input id="total" type="number" min="1" max="2000" value="30"></div>
+        <div style="max-width:190px">
+          <label>随机种子（可复现）</label>
+          <input id="seed" type="text" placeholder="留空=每次随机">
+        </div>
+      </div>
+      <label>难度配比（N1 极难 → N5 基础）</label>
+      <div class="presets" id="presets">
+        <div class="preset on" data-r="20,30,30,15,5"><b>真实能力测试 <span style="color:var(--acc)">推荐</span></b><div class="rat">N1:20 N2:30 N3:30 N4:15 N5:5</div></div>
+        <div class="preset" data-r="10,20,40,20,10"><b>通用基准</b><div class="rat">N1:10 N2:20 N3:40 N4:20 N5:10</div></div>
+        <div class="preset" data-r="5,15,30,30,20"><b>教学诊断</b><div class="rat">N1:5 N2:15 N3:30 N4:30 N5:20</div></div>
+        <div class="preset" data-r="25,30,25,15,5"><b>高难压力</b><div class="rat">N1:25 N2:30 N3:25 N4:15 N5:5</div></div>
+        <div class="preset expert-only" data-r="custom"><b>自定义</b><div class="rat">手动输入五档占比（专家模式）</div></div>
+      </div>
+      <div class="custom5 hide expert-only" id="custom5">
+        <div><label>N1 %</label><input id="r0" type="number" min="0" max="100" value="20"></div>
+        <div><label>N2 %</label><input id="r1" type="number" min="0" max="100" value="30"></div>
+        <div><label>N3 %</label><input id="r2" type="number" min="0" max="100" value="30"></div>
+        <div><label>N4 %</label><input id="r3" type="number" min="0" max="100" value="15"></div>
+        <div><label>N5 %</label><input id="r4" type="number" min="0" max="100" value="5"></div>
+      </div>
+      <div class="sumline hide expert-only" id="sumline"></div>
+      <div class="preview" id="preview">正在读取题库库存…</div>
+      <div class="check"><input id="skip" type="checkbox" checked><span>跳过该模型已测过的题（换新模型评测建议开启）</span></div>
+      <div style="margin-top:12px;display:flex;gap:10px">
+        <button class="btn primary" id="btnStart">开始评测</button>
+        <button class="btn danger" id="btnStop" disabled>停止</button>
+      </div>
+      <div id="errline"></div>
+      <div id="noteLine"></div>
+    </div>
+  </div>
+
+  <!-- 专家设置（仅专家模式） -->
+  <div class="card hide" id="expertCard">
+    <h2>③ 专家参数</h2>
+    <div class="row">
+      <div><label>思考强度（评测默认拉满）</label>
+        <select id="think">
+          <option value="max" selected>最高（推荐）</option>
+          <option value="high">高</option>
+          <option value="medium">中</option>
+          <option value="low">低</option>
+          <option value="off">不注入</option>
+        </select>
+      </div>
+      <div><label>每题 token 上限</label><input id="maxtok" type="number" min="256" max="65536" value="8192"></div>
+      <div><label>单题作答时限（秒）</label><input id="taskto" type="number" min="30" max="7200" value="600"></div>
+    </div>
+    <div class="hint">各家参数名自动映射（OpenAI reasoning_effort / Anthropic thinking 预算）；端点不支持时自动降级并在记录中留痕。</div>
+    <div class="row" style="margin-top:10px">
+      <div><label>温度（仅旧式采样模型有效）</label><input id="temp" type="number" step="0.1" min="0" max="2" value="0.2"></div>
+      <div><label>判分超时/测试点（秒）</label><input id="scoreto" type="number" min="3" max="300" value="20"></div>
+    </div>
+    <label>追加系统提示词（拼在默认提示词之后）</label>
+    <textarea id="sysextra" placeholder="例如：优先考虑边界条件；不要使用外部库…"></textarea>
+    <div class="row" style="margin-top:10px">
+      <div style="max-width:170px"><label>并发</label><input id="conc" type="number" min="1" max="8" value="4"></div>
+      <div style="align-self:end"><div class="hint" style="margin:0 0 8px">默认 4；撞限流（429）就往下减，低谷时段可试 6。</div></div>
+    </div>
+  </div>
+
+  <!-- 实时进度 -->
+  <div class="card">
+    <h2 id="progTitle">③ 实时进度 <span class="n" id="runMeta"></span></h2>
+    <div class="statbar">
+      <span class="dot" id="dot"></span><span id="statTx" class="sub">空闲</span>
+      <span class="sub mono" id="elapsed"></span>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="chips" id="chips"></div>
+    <div class="tasksbox">
+      <table id="taskTable">
+        <thead><tr><th style="width:210px">题目</th><th>难度</th><th>判定</th><th>用时(s)</th><th>tokens</th><th>备注</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="taskEmpty">尚无记录——配置好后点「开始评测」。</div>
+    </div>
+  </div>
+
+  <!-- 报告 -->
+  <div class="card">
+    <h2>④ 评分报告 <span class="n">完成后自动生成；下表汇总历史所有 run（同题以最新判定为准）</span></h2>
+    <div id="reportBody"><div class="empty">还没有报告。</div></div>
+    <h2 style="margin-top:18px">模型横向对比</h2>
+    <div id="histBody"><div class="empty">暂无历史。</div></div>
+  </div>
+
+  <footer>
+    <span id="footPool">题库四域</span>。算法域五档难度按 GLM-5.3 实测通过率标定；修码/性能域为独立三档尺，域间难度不可直接比较。
+    判分在本地子进程执行：算法 = 全部测试点输出一致；修码 = 修复后缺陷测试全部通过；性能 = 优化后效率基准达标。<br>
+    API Key 只在内存中转发；run 目录的 config.json 不含密钥。结果与 CLI <span class="mono">harness/run.py</span> 同构。
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const state = { seq:0, rows:new Map(), running:false, finishedShown:false, mode:"basic", pool:null, domain:"algo" };
+const VS = { pass:"pass", wrong_answer:"wrong_answer", timeout:"timeout", compile_error:"compile_error" };
+const TIERS = ["N1","N2","N3","N4","N5"];
+const TIER_CN = { N1:"极难", N2:"困难", N3:"中等", N4:"简单", N5:"基础", unrated:"未定级" };
+const PRESET_DESC = {
+  "20,30,30,15,5":"真实能力测试（推荐）", "10,20,40,20,10":"通用基准",
+  "5,15,30,30,20":"教学诊断", "25,30,25,15,5":"高难压力", custom:"自定义" };
+const REQUIRED = { model:"模型名", apikey:"API Key", baseurl:"接口地址" };
+
+// ---------- 模式 ----------
+function setMode(m){
+  state.mode = m;
+  document.querySelectorAll("#modebar span").forEach(s=>s.classList.toggle("on", s.dataset.m===m));
+  $("expertCard").classList.toggle("hide", m!=="expert");
+  document.querySelectorAll(".expert-only").forEach(el=>el.classList.toggle("hide", m!=="expert"));
+  if(m!=="expert" && curPreset==="custom") setPreset("20,30,30,15,5");   // 回落默认预设
+  document.querySelector("#progTitle").firstChild.textContent = m==="expert" ? "④ 实时进度 " : "③ 实时进度 ";
+  saveCfg();
+}
+document.querySelectorAll("#modebar span").forEach(s=>s.onclick=()=>setMode(s.dataset.m));
+
+// ---------- 必填校验 ----------
+function checkRequired(){
+  let miss = [];
+  Object.entries(REQUIRED).forEach(([id,name])=>{
+    const el = $(id), empty = !el.value.trim();
+    el.classList.toggle("req-empty", empty);
+    if(empty) miss.push(name);
+  });
+  return miss.length ? `${miss.join("、")}为必填项，不能为空` : null;
+}
+Object.keys(REQUIRED).forEach(id=>$(id).addEventListener("input",()=>{ if($(id).value.trim()) $(id).classList.remove("req-empty"); }));
+
+// ---------- 配置持久化（不含 api key） ----------
+function saveCfg(){ localStorage.setItem("tikutaku.cfg", JSON.stringify({
+  mode:state.mode, model:$("model").value, baseurl:$("baseurl").value,
+  domain:state.domain, total:$("total").value, preset:curPreset, ratios:customRatios(), seed:$("seed").value,
+  skip:$("skip").checked, think:$("think").value, maxtok:$("maxtok").value, taskto:$("taskto").value,
+  temp:$("temp").value, scoreto:$("scoreto").value, sysextra:$("sysextra").value, conc:$("conc").value })); }
+function loadCfg(){ try{ const c = JSON.parse(localStorage.getItem("tikutaku.cfg")||"{}");
+  ["model","baseurl","total","seed","maxtok","taskto","temp","scoreto","sysextra","conc"].forEach(k=>{
+    if(c[k]!==undefined && c[k]!=="") $(k).value = c[k]; });
+  if(c.think) $("think").value = c.think;
+  if(typeof c.skip==="boolean") $("skip").checked=c.skip;
+  if(c.domain){ $("domain").value = c.domain; state.domain = c.domain; }
+  if(c.mode) setMode(c.mode);
+  if(c.preset) setPreset(c.preset, c.ratios);
+}catch(e){} }
+
+// ---------- 题库库存 + 组卷预览 ----------
+const DOMAIN_HINT = {
+  algo: "全库五档 N1极难–N5基础；单题秒级判分。",
+  java_fix: "独立三档：N2 难（模型失败）/ N3 中（慢 pass）/ N4 易（快 pass）；N1/N5 无库存，占比自动并入。修码题单题数分钟，时限自动≥1800s。",
+  py_fix: "独立三档：N2 难 / N3 中 / N4 易；N1/N5 无库存，占比自动并入。修码题单题数分钟，时限自动≥1800s。",
+  perf: "独立三档：N2 难（含修对但提速不足）/ N3 中 / N4 易；N1/N5 无库存，占比自动并入。性能题跑双份计时，时限自动≥1800s。"
+};
+function curPool(){ return (state.pool && state.pool.domains && state.pool.domains[state.domain]) || null; }
+function renderFooterPool(){
+  const el = $("footPool"); if(!el) return;
+  if(!state.pool || !state.pool.domains){ el.textContent = "题库四域"; return; }
+  const ds = Object.values(state.pool.domains);
+  const total = ds.reduce((a,d)=>a+(d.total||0), 0);
+  el.textContent = `题库四域共 ${total.toLocaleString()} 题：` + ds.map(d=>`${d.label} ${d.total}`).join(" · ");
+}
+async function loadPool(){
+  try{ state.pool = await (await fetch("/api/pool")).json(); }catch(e){ state.pool=null; }
+  renderFooterPool();
+  renderPreview();
+}
+function customRatios(){ return [0,1,2,3,4].map(i=>Math.max(0, +$("r"+i).value||0)); }
+function curRatios(){
+  if(curPreset==="custom") return customRatios();
+  return curPreset.split(",").map(Number);
+}
+function previewAlloc(total, ratios, stock){
+  const s = ratios.reduce((a,b)=>a+b,0) || 1;
+  const raw = ratios.map(r=>total*r/s), want = raw.map(Math.floor);
+  const order = raw.map((v,i)=>[v-want[i],i]).sort((a,b)=>b[0]-a[0]);
+  for(let i=0;i<total-want.reduce((a,b)=>a+b,0);i++) want[order[i%5][1]]++;
+  const take = want.map((w,i)=>Math.min(w, stock[i]));
+  let left = total - take.reduce((a,b)=>a+b,0);
+  const rem = stock.map((st,i)=>st-take[i]);
+  for(let i=0; left>0 && i<20;i++){ const j = rem.indexOf(Math.max(...rem));
+    if(rem[j]<=0) break; const t=Math.min(left,rem[j]); take[j]+=t; rem[j]-=t; left-=t; }
+  return {want, take};
+}
+function renderPreview(){
+  if(!state.pool){ $("preview").textContent="题库库存读取失败，刷新页面重试。"; return; }
+  const dom = curPool();
+  if(!dom){ $("preview").textContent="该域库存读取失败。"; return; }
+  $("domainHint").textContent = DOMAIN_HINT[state.domain]||"";
+  const stock = TIERS.map(t=>dom.tiers[t]||0);
+  const total = Math.max(1, Math.min(+$("total").value||30, dom.total));
+  $("poolInfo").textContent = `${dom.label} 可测 ${dom.total} 题`;
+  const ratios = curRatios();
+  const sum = ratios.reduce((a,b)=>a+b,0);
+  if(sum<=0){ $("preview").innerHTML="占比全为 0，请至少给一档分配占比。"; $("sumline").className="sumline hide expert-only"; return; }
+  const eq = ratios.map(r=>r/sum*100);   // 归一化后的等效占比（无论总和是否为 100）
+  // 自定义占比的总和提示：≠100 时按比例归一化，所见（等效值）即所得
+  if(curPreset==="custom"){
+    const sl = $("sumline");
+    sl.classList.remove("hide");
+    if(Math.abs(sum-100)<0.01){
+      sl.className = "sumline ok expert-only";
+      sl.textContent = "Σ = 100% ✓";
+    } else {
+      sl.className = "sumline adj expert-only";
+      sl.textContent = `Σ = ${sum}% ≠ 100% — 已按比例自动归一化，等效配比 ${eq.map(v=>v.toFixed(1)).join(" / ")}%`;
+    }
+  } else {
+    $("sumline").className = "sumline hide expert-only";
+  }
+  const {want, take} = previewAlloc(total, ratios, stock);
+  const parts = TIERS.map((t,i)=>{
+    const lack = want[i]>stock[i];
+    return `<b>${take[i]}</b>${lack?`<span class="lack">（想要${want[i]}，库存${stock[i]}不足）</span>`:""}`;
+  });
+  const name = PRESET_DESC[curPreset]||"";
+  const eqTag = curPreset==="custom" && Math.abs(sum-100)>=0.01
+    ? TIERS.map((t,i)=>`${t} ${eq[i].toFixed(0)}%`).join(" ｜ ")+"<br>" : "";
+  $("preview").innerHTML = `组卷预览（${name}，共 ${take.reduce((a,b)=>a+b,0)} 题）：<br>`+ eqTag +
+    TIERS.map((t,i)=>`${t} ${TIER_CN[t]} ${parts[i]} · 库存${stock[i]}`).join(" ｜ ");
+}
+
+// 预设选择
+let curPreset="20,30,30,15,5";
+function setPreset(r, ratios){
+  if(r==="custom" && state.mode!=="expert") r = "20,30,30,15,5";   // 默认模式不进自定义
+  curPreset=r;
+  document.querySelectorAll(".preset").forEach(p=>p.classList.toggle("on", p.dataset.r===r));
+  $("custom5").classList.toggle("hide", r!=="custom");
+  if(r==="custom" && ratios) ratios.forEach((v,i)=>$("r"+i).value=v);
+  renderPreview(); saveCfg();
+}
+document.querySelectorAll(".preset").forEach(p=>p.onclick=()=>setPreset(p.dataset.r));
+[0,1,2,3,4].forEach(i=>$("r"+i).oninput=()=>{ renderPreview(); saveCfg(); });
+$("total").oninput=()=>{ renderPreview(); saveCfg(); };
+// 域切换：非算法域单题时限建议 1800s（只在该值未被手动改过量级时联动，避免覆盖用户设置）
+$("domain").onchange=()=>{
+  state.domain = $("domain").value;
+  const want = state.domain==="algo" ? 600 : 1800, cur = +$("taskto").value||600;
+  if((cur<=700) === (state.domain==="algo")) $("taskto").value = want;   // 600↔1800 量级内联动
+  renderPreview(); saveCfg();
+};
+
+// ---------- 连接测试 ----------
+$("btnTest").onclick = async ()=>{
+  $("errline").textContent="";
+  const miss = checkRequired();
+  if(miss){ $("errline").textContent = miss; return; }
+  const r = $("testResult"); r.className=""; r.textContent = "连接中（自动识别协议）…";
+  try{
+    const res = await fetch("/api/test",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:$("model").value.trim(),api_key:$("apikey").value,base_url:$("baseurl").value.trim()})});
+    const j = await res.json();
+    if(j.ok){
+      const proto = j.protocol==="anthropic" ? "Anthropic 兼容" : "OpenAI 兼容";
+      r.className="ok";
+      r.textContent = `✓ 连接成功，识别为${proto}协议 · ${j.latency_sec}s · 回复: ${j.reply} · tokens ${j.usage.prompt_tokens}+${j.usage.completion_tokens}`;
+    } else { r.className="bad"; r.textContent = `✗ ${j.error}`; }
+  }catch(e){ r.className="bad"; r.textContent = "✗ 请求失败: "+e; }
+};
+
+// ---------- 启停 ----------
+function setRunning(on){ state.running=on; $("btnStart").disabled=on; $("btnStop").disabled=!on;
+  document.querySelectorAll("#model,#apikey,#baseurl,#domain,#total,#seed,#skip,#maxtok,#taskto,#temp,#scoreto,#sysextra,#conc,#think")
+    .forEach(el=>el.disabled=on);
+  document.querySelectorAll(".preset").forEach(el=>el.style.pointerEvents=on?"none":"");
+}
+$("btnStart").onclick = async ()=>{
+  $("errline").textContent=""; $("noteLine").textContent="";
+  const miss = checkRequired();
+  if(miss){ $("errline").textContent = miss; return; }
+  if(!$("model").value.trim()){ $("errline").textContent="请先填模型名"; return; }
+  const ratios = curRatios();
+  if(ratios.reduce((a,b)=>a+b,0)<=0){ $("errline").textContent="难度配比不能全为 0"; return; }
+  const seedStr = $("seed").value.trim();
+  const body = { model:$("model").value.trim(), api_key:$("apikey").value,
+    base_url:$("baseurl").value.trim(), domain:state.domain, total:+$("total").value||30, ratios,
+    seed: seedStr===""?null:(+seedStr||0), concurrency:+$("conc").value||2, skip_done:$("skip").checked,
+    max_tokens:+$("maxtok").value||8192, temperature:+$("temp").value||0.2,
+    thinking_level:$("think").value,
+    task_timeout:+$("taskto").value||600, score_timeout:+$("scoreto").value||20,
+    system_extra:$("sysextra").value };
+  $("btnStart").disabled = true; $("statTx").textContent = "正在验证连接…";
+  const res = await fetch("/api/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!res.ok){
+    $("btnStart").disabled = false; $("statTx").textContent = "空闲";
+    $("errline").textContent = "启动失败: "+(await res.json()).detail; return;
+  }
+  saveCfg();
+  state.rows.clear(); $("taskTable").querySelector("tbody").innerHTML=""; state.finishedShown=false;
+  setRunning(true); pollSoon(100);
+};
+$("btnStop").onclick = ()=>{ fetch("/api/stop",{method:"POST"}); $("statTx").textContent="正在停止（当前题完成后中断）…"; };
+
+// ---------- 轮询 ----------
+let pollTimer=null;
+function pollSoon(ms){ clearTimeout(pollTimer); pollTimer=setTimeout(poll, ms); }
+async function poll(){
+  let next = 3500;
+  try{
+    const j = await (await fetch(`/api/state?since=${state.seq}`)).json();
+    state.seq = j.seq;
+    handleEvents(j.events||[]);
+    renderSnapshot(j.snapshot||{});
+    next = (j.snapshot&&j.snapshot.status==="running") ? 1200 : 3500;
+  }catch(e){ next = 3000; }
+  pollSoon(next);
+}
+function handleEvents(evs){
+  for(const ev of evs){
+    if(ev.type==="meta"){
+      const alloc = ev.alloc ? " · "+Object.entries(ev.alloc).filter(([,v])=>v>0).map(([k,v])=>`${k}×${v}`).join(" ") : "";
+      const short = ev.shortfall && Object.keys(ev.shortfall).length
+        ? `（${Object.keys(ev.shortfall).join("/")} 库存不足已从其他档补齐）` : "";
+      $("runMeta").textContent = `${ev.model}${alloc}${short} · ${ev.run_id}`;
+      if(ev.paper_total && ev.total < ev.paper_total)
+        $("noteLine").textContent = `已跳过该模型测过的 ${ev.paper_total - ev.total} 题`;
+      state.rows.clear();
+    }
+    else if(ev.type==="task_start"){ upsertRow(ev.bank_id,{bank_id:ev.bank_id,running:true}); }
+    else if(ev.type==="task_done"){ upsertRow((ev.rec||{}).bank_id||"", ev.rec); }
+    else if(ev.type==="error"){ $("errline").textContent = "运行错误: "+ev.msg; }
+    else if(ev.type==="finished"){
+      if(ev.note) $("noteLine").textContent = ev.note;
+      loadHistory();
+    }
+  }
+}
+function verdictClass(v){ return VS[v] ? "v-"+v : (v&&v.startsWith("error") ? "v-error" : "v-other"); }
+function upsertRow(bid, data){
+  const prev = state.rows.get(bid)||{};
+  state.rows.set(bid, Object.assign(prev, data));
+  const tb = $("taskTable").querySelector("tbody");
+  let tr = tb.querySelector(`tr[data-bid="${CSS.escape(bid)}"]`);
+  if(!tr){ tr = document.createElement("tr"); tr.dataset.bid=bid; tb.prepend(tr); }
+  const d = state.rows.get(bid);
+  const v = d.score ? d.score.verdict : (d.running?"…":"?");
+  const u = d.usage||{};
+  const tok = (u.prompt_tokens||0)+(u.completion_tokens||0);
+  tr.className = d.running&&!d.score ? "running":"";
+  tr.innerHTML = `<td class="mono">${bid}</td><td class="tier">${TIER_CN[d.difficulty]||d.difficulty||"—"}</td>`+
+    `<td><span class="badge ${verdictClass(v)}">${v}</span></td>`+
+    `<td>${d.total_sec??"—"}</td><td>${tok||"—"}</td><td class="tier">${(d.score&&(d.score.err||d.score.note)||d.error||"").slice(0,80)}</td>`;
+  $("taskEmpty").style.display="none";
+  while(tb.children.length>400) tb.lastChild.remove();
+}
+function renderSnapshot(s){
+  const dot=$("dot");
+  const map = { idle:["","空闲"], running:["run","评测中"], finished:["fin","已完成"], stopped:["fin","已停止"], error:["err","出错"] };
+  const m = map[s.status]||["","?"];
+  dot.className="dot "+m[0];
+  $("statTx").textContent = m[1] + (s.status==="error"&&s.error?(" · "+s.error):"");
+  const done = s.summary ? s.summary.n : 0, total = s.total||0;
+  $("barFill").style.width = total ? (done/total*100)+"%" : "0";
+  $("elapsed").textContent = s.elapsed ? `${s.elapsed}s / ${done}题` : "";
+  if(s.summary) renderChips(s.summary);
+  if((s.status==="finished"||s.status==="stopped") && !state.finishedShown){ state.finishedShown=true; setRunning(false); }
+  if(s.status==="error"){ setRunning(false); }
+}
+function renderChips(sm){
+  const v = sm.verdicts||{};
+  $("chips").innerHTML =
+    `<span class="chip">完成<b>${sm.n}</b></span>`+
+    `<span class="chip ok">通过<b>${v.pass||0}</b></span>`+
+    `<span class="chip bad">答案错误<b>${v.wrong_answer||0}</b></span>`+
+    `<span class="chip to">超时<b>${v.timeout||0}</b></span>`+
+    `<span class="chip er">编译错误<b>${v.compile_error||0}</b></span>`+
+    (v.error?`<span class="chip bad">API错误<b>${v.error||0}</b></span>`:"")+
+    `<span class="chip">通过率<b>${(sm.rate*100).toFixed(1)}%</b></span>`+
+    `<span class="chip">平均用时<b>${sm.avg_sec}s</b></span>`+
+    `<span class="chip">tokens<b>${fmtTok(sm.total_tokens)}</b></span>`;
+}
+function fmtTok(n){ return n>1e6?(n/1e6).toFixed(1)+"M":n>1e3?(n/1e3).toFixed(0)+"k":n; }
+
+// ---------- 报告 ----------
+const TIER_ORDER = ["N1","N2","N3","N4","N5","unrated"];
+function tierRow(c,cn){
+  if(!c||!c.n) return "";
+  const rate = c.rate!=null?c.rate:c.pass/c.n;
+  return `<tr><td>${cn}</td><td>${c.n}</td><td>${c.pass}</td><td>${(rate*100).toFixed(1)}%</td>`+
+    `<td><span class="ratebar"><i style="width:${(rate*100).toFixed(0)}%"></i></span></td></tr>`;
+}
+async function loadHistory(){
+  try{
+    const h = await (await fetch("/api/history")).json();
+    const models = Object.entries(h.models||{}).sort((a,b)=>(b[1].rate||0)-(a[1].rate||0));
+    $("histBody").innerHTML = models.length ? `<table><thead><tr><th>模型</th><th>题数</th><th>通过率</th>`+
+      `<th>N1</th><th>N2</th><th>N3</th><th>N4</th><th>N5</th><th>平均用时</th><th>tokens</th></tr></thead><tbody>`+
+      models.map(([m,s])=>{
+        const t=s.tiers||{}, g=k=>t[k]&&t[k].n?`${(t[k].rate!=null?t[k].rate:t[k].pass/t[k].n)*100|0}%(${t[k].n})`:"—";
+        return `<tr><td class="mono">${m}</td><td>${s.n}</td><td><b>${(s.rate*100).toFixed(1)}%</b></td>`+
+          `<td>${g("N1")}</td><td>${g("N2")}</td><td>${g("N3")}</td><td>${g("N4")}</td><td>${g("N5")}</td>`+
+          `<td>${s.avg_sec}s</td><td>${fmtTok(s.total_tokens)}</td></tr>`;
+      }).join("")+"</tbody></table>" : `<div class="empty">暂无历史。</div>`;
+    const runs = h.runs||[];
+    if(runs.length){
+      const r = runs[0], t = r.tiers||{};
+      $("reportBody").innerHTML = `<div class="sub" style="margin-bottom:8px">最近批次 <span class="mono">${r.run_id}</span> · ${r.model} · ${r.n} 题 · 通过率 <b style="color:var(--ok)">${(r.rate*100).toFixed(1)}%</b> · 平均 ${r.avg_sec}s</div>`+
+        `<table><thead><tr><th>难度</th><th>题数</th><th>通过</th><th>通过率</th><th></th></tr></thead><tbody>`+
+        TIER_ORDER.map(k=>tierRow(t[k], TIER_CN[k])).join("")+
+        `</tbody></table>`;
+    }
+  }catch(e){ console.error(e); }
+}
+
+// ---------- init ----------
+loadCfg();
+loadPool();
+pollSoon(300);
+loadHistory();
+</script>
+</body>
+</html>

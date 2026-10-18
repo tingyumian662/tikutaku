@@ -1,0 +1,25 @@
+# 题库数据层与产物 —— 永不提交（数据合规与防泄题红线）
+bank/
+sources/
+results/
+logs/
+downloads/
+vendor/
+d4j_work/
+*.parquet
+
+# 密钥与凭据
+.key
+*.key
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# 本地工具状态
+.zcode/
+.zcodeignore
+tmp/

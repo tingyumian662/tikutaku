@@ -1,0 +1,23 @@
+[project]
+name = "tikutaku"
+version = "0.1.0"
+description = "本地 AI 测试题库：索引全量 + 镜像按需拉取"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface_hub>=0.26",
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "tqdm>=4.66",
+    "requests>=2.32",
+    "rich>=13",
+    "pyyaml>=6.0",
+    "cryptography>=43",
+    "tabulate>=0.10.0",
+    "openai>=3.26.1",
+    "anthropic>=1.12.1",
+    "fastapi>=0.143.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[tool.uv]
+python-preference = "only-managed"
