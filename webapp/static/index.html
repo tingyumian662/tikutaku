@@ -130,7 +130,11 @@
     <!-- ② 出卷 -->
     <div class="card">
       <h2>② 出卷 <span class="n" id="poolInfo"></span></h2>
-      <div class="row" style="margin-bottom:10px">
+      <label>排位赛锚卷（固定题集·冻结难度口径·跨模型可比）</label>
+      <select id="anchor">
+        <option value="" selected>— 不使用（按下方参数随机组卷）—</option>
+      </select>
+      <div class="row" style="margin-bottom:10px;margin-top:10px">
         <div style="max-width:340px">
           <label>试卷域（各域独立难度尺，不跨域混卷）</label>
           <select id="domain">
@@ -231,6 +235,23 @@
     <div id="histBody"><div class="empty">暂无历史。</div></div>
   </div>
 
+  <!-- 排位赛 -->
+  <div class="card">
+    <h2>⑤ 排位赛榜单 <span class="n">锚卷固定题集 · 榜单取各模型最新一轮 · 同模型多轮保留时间序列</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <div style="max-width:360px">
+        <label>查看锚卷</label>
+        <select id="boardAnchor"><option value="">— 选择锚卷 —</option></select>
+      </div>
+      <div class="hint" id="boardHint" style="align-self:end;margin:0 0 6px"></div>
+    </div>
+    <div id="boardBody"><div class="empty">尚无锚卷。生成锚卷后此处显示跨模型榜单。</div></div>
+    <h2 style="margin-top:18px">通过率趋势 <span class="n">每模型一条线（最新一轮在前）</span></h2>
+    <svg id="trendSvg" viewBox="0 0 680 240" style="width:100%;max-width:680px;display:block"></svg>
+    <div class="hint" id="trendEmpty"></div>
+    <div id="driftBody"></div>
+  </div>
+
   <footer>
     <span id="footPool">题库四域</span>。算法域五档难度按 GLM-5.3 实测通过率标定；修码/性能域为独立三档尺，域间难度不可直接比较。
     判分在本地子进程执行：算法 = 全部测试点输出一致；修码 = 修复后缺陷测试全部通过；性能 = 优化后效率基准达标。<br>
@@ -241,7 +262,8 @@
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-const state = { seq:0, rows:new Map(), running:false, finishedShown:false, mode:"basic", pool:null, domain:"algo" };
+const state = { seq:0, rows:new Map(), running:false, finishedShown:false, mode:"basic", pool:null, domain:"algo",
+                anchor:"", anchors:[], boardData:null };
 const VS = { pass:"pass", wrong_answer:"wrong_answer", timeout:"timeout", compile_error:"compile_error" };
 const TIERS = ["N1","N2","N3","N4","N5"];
 const TIER_CN = { N1:"极难", N2:"困难", N3:"中等", N4:"简单", N5:"基础", unrated:"未定级" };
@@ -279,13 +301,15 @@ function saveCfg(){ localStorage.setItem("tikutaku.cfg", JSON.stringify({
   mode:state.mode, model:$("model").value, baseurl:$("baseurl").value,
   domain:state.domain, total:$("total").value, preset:curPreset, ratios:customRatios(), seed:$("seed").value,
   skip:$("skip").checked, think:$("think").value, maxtok:$("maxtok").value, taskto:$("taskto").value,
-  temp:$("temp").value, scoreto:$("scoreto").value, sysextra:$("sysextra").value, conc:$("conc").value })); }
+  temp:$("temp").value, scoreto:$("scoreto").value, sysextra:$("sysextra").value, conc:$("conc").value,
+  anchor:state.anchor })); }
 function loadCfg(){ try{ const c = JSON.parse(localStorage.getItem("tikutaku.cfg")||"{}");
   ["model","baseurl","total","seed","maxtok","taskto","temp","scoreto","sysextra","conc"].forEach(k=>{
     if(c[k]!==undefined && c[k]!=="") $(k).value = c[k]; });
   if(c.think) $("think").value = c.think;
   if(typeof c.skip==="boolean") $("skip").checked=c.skip;
   if(c.domain){ $("domain").value = c.domain; state.domain = c.domain; }
+  if(c.anchor) state.anchor = c.anchor;
   if(c.mode) setMode(c.mode);
   if(c.preset) setPreset(c.preset, c.ratios);
 }catch(e){} }
@@ -406,9 +430,10 @@ $("btnTest").onclick = async ()=>{
 
 // ---------- 启停 ----------
 function setRunning(on){ state.running=on; $("btnStart").disabled=on; $("btnStop").disabled=!on;
-  document.querySelectorAll("#model,#apikey,#baseurl,#domain,#total,#seed,#skip,#maxtok,#taskto,#temp,#scoreto,#sysextra,#conc,#think")
+  document.querySelectorAll("#model,#apikey,#baseurl,#anchor,#domain,#total,#seed,#skip,#maxtok,#taskto,#temp,#scoreto,#sysextra,#conc,#think")
     .forEach(el=>el.disabled=on);
   document.querySelectorAll(".preset").forEach(el=>el.style.pointerEvents=on?"none":"");
+  if(!on) applyAnchorMode();
 }
 $("btnStart").onclick = async ()=>{
   $("errline").textContent=""; $("noteLine").textContent="";
@@ -416,11 +441,12 @@ $("btnStart").onclick = async ()=>{
   if(miss){ $("errline").textContent = miss; return; }
   if(!$("model").value.trim()){ $("errline").textContent="请先填模型名"; return; }
   const ratios = curRatios();
-  if(ratios.reduce((a,b)=>a+b,0)<=0){ $("errline").textContent="难度配比不能全为 0"; return; }
+  if(!state.anchor && ratios.reduce((a,b)=>a+b,0)<=0){ $("errline").textContent="难度配比不能全为 0"; return; }
   const seedStr = $("seed").value.trim();
   const body = { model:$("model").value.trim(), api_key:$("apikey").value,
     base_url:$("baseurl").value.trim(), domain:state.domain, total:+$("total").value||30, ratios,
     seed: seedStr===""?null:(+seedStr||0), concurrency:+$("conc").value||2, skip_done:$("skip").checked,
+    anchor_id: state.anchor||"",
     max_tokens:+$("maxtok").value||8192, temperature:+$("temp").value||0.2,
     thinking_level:$("think").value,
     task_timeout:+$("taskto").value||600, score_timeout:+$("scoreto").value||20,
@@ -457,7 +483,7 @@ function handleEvents(evs){
       const alloc = ev.alloc ? " · "+Object.entries(ev.alloc).filter(([,v])=>v>0).map(([k,v])=>`${k}×${v}`).join(" ") : "";
       const short = ev.shortfall && Object.keys(ev.shortfall).length
         ? `（${Object.keys(ev.shortfall).join("/")} 库存不足已从其他档补齐）` : "";
-      $("runMeta").textContent = `${ev.model}${alloc}${short} · ${ev.run_id}`;
+      $("runMeta").textContent = `${ev.anchor_id?`锚卷 ${ev.anchor_id} · `:""}${ev.model}${alloc}${short} · ${ev.run_id}`;
       if(ev.paper_total && ev.total < ev.paper_total)
         $("noteLine").textContent = `已跳过该模型测过的 ${ev.paper_total - ev.total} 题`;
       state.rows.clear();
@@ -468,6 +494,7 @@ function handleEvents(evs){
     else if(ev.type==="finished"){
       if(ev.note) $("noteLine").textContent = ev.note;
       loadHistory();
+      if(state.anchor || $("boardAnchor").value) loadAnchorBoard();
     }
   }
 }
@@ -548,9 +575,128 @@ async function loadHistory(){
   }catch(e){ console.error(e); }
 }
 
+// ---------- 排位赛锚卷 ----------
+const DOMAIN_CN = { algo:"算法", java_fix:"Java 修码", py_fix:"Python 修码", perf:"性能" };
+const TREND_COLORS = ["#4f8ef7","#22c55e","#f59e0b","#a78bfa","#ef4444","#14b8a6","#f472b6"];
+async function loadAnchors(){
+  try{
+    state.anchors = await (await fetch("/api/anchors")).json();
+  }catch(e){ state.anchors = []; }
+  const list = state.anchors||[];
+  $("anchor").innerHTML = '<option value="">— 不使用（按下方参数随机组卷）—</option>'+
+    list.map(a=>`<option value="${a.id}">${a.id} · ${a.n} 题${a.created_at?` · ${a.created_at}`:""}</option>`).join("");
+  $("boardAnchor").innerHTML = '<option value="">— 选择锚卷 —</option>'+
+    list.map(a=>`<option value="${a.id}">${a.id} · ${a.n} 题</option>`).join("");
+  if(state.anchor && list.some(a=>a.id===state.anchor)) $("anchor").value = state.anchor;
+  if(list.length && !$("boardAnchor").value) $("boardAnchor").value = list[0].id;
+  applyAnchorMode();
+  loadAnchorBoard();
+}
+function curAnchor(){ return (state.anchors||[]).find(a=>a.id===state.anchor) || null; }
+function applyAnchorMode(){
+  const a = curAnchor();
+  ["domain","total","seed","skip"].forEach(id=>$(id).disabled = !!a);
+  [0,1,2,3,4].forEach(i=>$("r"+i).disabled = !!a);
+  document.querySelectorAll(".preset").forEach(el=>el.style.pointerEvents = a?"none":"");
+  if(a){
+    const mix = Object.entries(a.domain_counts||{}).map(([d,n])=>`${DOMAIN_CN[d]||d} ${n}`).join(" · ");
+    $("preview").innerHTML = `锚卷 <b>${a.id}</b>（${a.created_at||"?"} 冻结）：固定 <b>${a.n}</b> 题<br>${mix}`+
+      `<br>难度口径取卷内冻结档位；同模型重跑<b>不跳题</b>（回归测试语义，跑完自动进榜单）。`;
+  } else { renderPreview(); }
+}
+$("anchor").onchange = ()=>{ state.anchor = $("anchor").value; applyAnchorMode(); saveCfg(); };
+$("boardAnchor").onchange = ()=>loadAnchorBoard();
+
+async function loadAnchorBoard(){
+  const id = $("boardAnchor").value;
+  if(!id){
+    $("boardHint").textContent = "";
+    $("boardBody").innerHTML = '<div class="empty">选择锚卷后显示跨模型榜单。</div>';
+    $("trendSvg").innerHTML = ""; $("trendEmpty").textContent = ""; $("driftBody").innerHTML = "";
+    state.boardData = null; return;
+  }
+  try{
+    const h = await (await fetch("/api/anchor-history?anchor="+encodeURIComponent(id))).json();
+    state.boardData = h;
+    renderBoard(h); drawTrend(h); renderDrift(h);
+  }catch(e){
+    $("boardBody").innerHTML = '<div class="empty">读取失败: '+e+'</div>';
+  }
+}
+function renderBoard(h){
+  $("boardHint").textContent = `${h.anchor_id} · ${h.n_tasks} 题 · `+
+    Object.entries(h.domain_counts||{}).map(([d,n])=>`${DOMAIN_CN[d]||d} ${n}`).join(" / ");
+  const b = h.board||[];
+  if(!b.length){ $("boardBody").innerHTML = '<div class="empty">该锚卷还没有跑过的轮次——出卷卡选同一锚卷开赛即入榜。</div>'; return; }
+  $("boardBody").innerHTML = `<table><thead><tr><th>#</th><th>模型</th><th>最新轮次</th><th>日期</th><th>题数</th><th>通过率</th>`+
+    `<th>算法</th><th>Java</th><th>Python</th><th>性能</th><th>轮次</th></tr></thead><tbody>`+
+    b.map((r,i)=>{
+      const g=d=>{ const c=(r.domains||{})[d]; return c&&c.n?`${(c.rate*100).toFixed(0)}%<span class="tier">(${c.n})</span>`:"—"; };
+      const rounds = ((h.models||{})[r.model]||[]).length;
+      return `<tr><td>${i+1}</td><td class="mono">${r.model}</td><td class="mono tier">${r.run_id}</td><td>${r.date}</td>`+
+        `<td>${r.n}</td><td><b>${(r.rate*100).toFixed(1)}%</b> <span class="ratebar"><i style="width:${(r.rate*100).toFixed(0)}%"></i></span></td>`+
+        `<td>${g("algo")}</td><td>${g("java_fix")}</td><td>${g("py_fix")}</td><td>${g("perf")}</td><td>${rounds}</td></tr>`;
+    }).join("")+"</tbody></table>";
+}
+function drawTrend(h){
+  const svg = $("trendSvg");
+  const models = h && h.models ? Object.entries(h.models) : [];
+  const dates = new Set();
+  models.forEach(([,rows])=>rows.forEach(r=>dates.add(r.date)));
+  const ds = [...dates].sort();
+  if(!models.length || ds.length===0){
+    $("trendEmpty").textContent = "尚无数据点（每模型至少跑完一轮后出折线）。";
+    svg.innerHTML = ""; return;
+  }
+  $("trendEmpty").textContent = "";
+  const W=680, H=240, PL=46, PR=16, PT=14, PB=30;
+  const x = d => PL + (ds.length===1 ? (W-PL-PR)/2 : ds.indexOf(d)/(ds.length-1)*(W-PL-PR));
+  const y = r => PT + (1-Math.max(0,Math.min(1,r)))*(H-PT-PB);
+  let inner = "";
+  for(let p=0;p<=100;p+=25){
+    inner += `<line x1="${PL}" y1="${y(p/100)}" x2="${W-PR}" y2="${y(p/100)}" stroke="#2a3550" stroke-dasharray="3,4"/>`+
+      `<text x="${PL-6}" y="${y(p/100)+4}" fill="#93a0b8" font-size="10" text-anchor="end">${p}%</text>`;
+  }
+  ds.forEach(d=>{ inner += `<text x="${x(d)}" y="${H-10}" fill="#93a0b8" font-size="10" text-anchor="middle">${d.slice(5)}</text>`; });
+  models.forEach(([model,rows],i)=>{
+    const color = TREND_COLORS[i%TREND_COLORS.length];
+    const pts = rows.map(r=>`${x(r.date).toFixed(1)},${y(r.rate||0).toFixed(1)}`).join(" ");
+    inner += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>`;
+    rows.forEach(r=>{
+      inner += `<circle cx="${x(r.date).toFixed(1)}" cy="${y(r.rate||0).toFixed(1)}" r="3.5" fill="${color}">`+
+        `<title>${model} · ${r.date} · ${(r.rate*100).toFixed(1)}% · ${r.run_id}</title></circle>`;
+    });
+    const last = rows[rows.length-1];
+    inner += `<text x="${Math.min(x(last.date)+7, W-100)}" y="${y(last.rate||0)-6}" fill="${color}" font-size="10">${model.slice(0,20)}</text>`;
+  });
+  svg.innerHTML = inner;
+}
+function renderDrift(h){
+  const el = $("driftBody");
+  const drift = (h && h.drift) || {};
+  const keys = Object.keys(drift);
+  if(!keys.length){ el.innerHTML = ""; return; }
+  let html = '<h2 style="margin-top:18px">漂移检测 <span class="n">同模型最新两轮逐题判定翻转；单题翻转属正常采样波动，集中翻转才值得查环境</span></h2>';
+  keys.forEach(m=>{
+    const d = drift[m];
+    if(!d.flips.length){
+      html += `<div class="sumline ok" style="margin-top:6px">${m}：${d.runs} 轮无翻转，稳定</div>`;
+    }else{
+      html += `<div class="sumline adj" style="margin-top:6px">${m}：${d.runs} 轮，最新两轮翻转 ${d.flips.length} 题</div>`+
+        `<table style="margin-top:4px"><thead><tr><th>题目</th><th>档位</th><th>上轮</th><th>本轮</th></tr></thead><tbody>`+
+        d.flips.map(f=>`<tr><td class="mono">${f.bank_id}</td><td class="tier">${TIER_CN[f.tier]||f.tier||"—"}</td>`+
+          `<td><span class="badge ${verdictClass(f.was)}">${f.was}</span></td>`+
+          `<td><span class="badge ${verdictClass(f.now)}">${f.now}</span></td></tr>`).join("")+
+        "</tbody></table>";
+    }
+  });
+  el.innerHTML = html;
+}
+
 // ---------- init ----------
 loadCfg();
 loadPool();
+loadAnchors();
 pollSoon(300);
 loadHistory();
 </script>

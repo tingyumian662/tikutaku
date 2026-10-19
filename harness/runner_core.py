@@ -132,6 +132,7 @@ class BatchRun:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         # cfg: view/n/bank_ids/skip_done/model/base_url/api_key/protocol/concurrency
+        self._tier_fn = None  # 锚卷模式 = 冻结档位函数（summary 与逐题标签同口径）
 
     # ---- 事件回调：web 层注入 ----
     def on_event(self, ev: dict) -> None:  # pragma: no cover - 由子类/外部替换
@@ -168,7 +169,16 @@ class BatchRun:
         self.status = "running"
         bank_ids = self.cfg.get("bank_ids")
         alloc, shortfall = None, None
-        if not self.cfg.get("view") and not bank_ids and self.cfg.get("total"):
+        anchor = None
+        if self.cfg.get("anchor_id"):
+            # 排位赛锚卷：固定题集 + 冻结难度档快照。回归测试语义 → 强制不跳题
+            # （skip-done 按"同模型已测"判重，会把第二轮回归全跳掉）
+            af = ROOT / "bank" / "anchors" / f"{self.cfg['anchor_id']}.json"
+            if not af.exists():
+                raise FileNotFoundError(f"锚卷不存在: {af}")
+            anchor = json.loads(af.read_text(encoding="utf-8"))
+            bank_ids = anchor["bank_ids"]
+        elif not self.cfg.get("view") and not bank_ids and self.cfg.get("total"):
             bank_ids, alloc, shortfall = compose_paper(
                 int(self.cfg["total"]), self.cfg.get("ratios") or [20, 30, 30, 15, 5],
                 seed=self.cfg.get("seed"), domain=self.cfg.get("domain") or "algo")
@@ -176,7 +186,8 @@ class BatchRun:
             self.paper_shortfall = shortfall
         ns = argparse.Namespace(
             view=self.cfg.get("view"), report=None, bank_ids=(",".join(bank_ids) if isinstance(bank_ids, list) else bank_ids),
-            n=int(self.cfg.get("n") or 0), skip_done=bool(self.cfg.get("skip_done")),
+            n=int(self.cfg.get("n") or 0),
+            skip_done=(bool(self.cfg.get("skip_done")) if anchor is None else False),
             adapter="api", model=self.cfg.get("model"), base_url=self.cfg.get("base_url"),
             api_key=self.cfg.get("api_key"), protocol=self.cfg.get("protocol") or "auto",
             tool=None, concurrency=int(self.cfg.get("concurrency") or 1),
@@ -184,6 +195,7 @@ class BatchRun:
             task_timeout=self.cfg.get("task_timeout"), score_timeout=self.cfg.get("score_timeout"),
             system_extra=self.cfg.get("system_extra"),
             thinking_level=self.cfg.get("thinking_level") or "max",
+            anchor=None,
         )
         tasks = run_mod.load_selection(ns)
         self.total = len(tasks)
@@ -193,6 +205,12 @@ class BatchRun:
                              or {"easy": "N4", "medium": "N3", "hard": "N2"}.get(
                                  str(t.get("initial_difficulty") or "").lower(), "unrated"))
                        for t in tasks if t.get("bank_id")}
+        if anchor:  # 锚卷冻结档位优先于现池（重切难度后旧卷仍显示冻结时口径）
+            snap = anchor.get("per_task") or {}
+            for bid, info in snap.items():
+                if info.get("tier"):
+                    self._tiers[bid] = info["tier"]
+            self._tier_fn = lambda bid: (snap.get(bid) or {}).get("tier") or "unrated"
         run_id = time.strftime("run-%Y%m%d-%H%M%S")
         self.run_dir = RESULTS / run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -201,6 +219,7 @@ class BatchRun:
             encoding="utf-8")
         self._emit("meta", run_id=run_id, total=self.total,
                    model=self.cfg.get("model"), view=self.cfg.get("view"),
+                   anchor_id=self.cfg.get("anchor_id"),
                    paper_total=(len(bank_ids) if isinstance(bank_ids, list) else None),
                    alloc=alloc, shortfall=shortfall,
                    selected_before_skip=(len(bank_ids) if isinstance(bank_ids, list) else self.total))
@@ -259,7 +278,7 @@ class BatchRun:
 
     # ---- 汇总 ----
     def summary(self) -> dict:
-        return summarize(self.records)
+        return summarize(self.records, self._tier_fn)
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -269,7 +288,7 @@ class BatchRun:
             "run_id": self.run_dir.name if self.run_dir else None,
             "total": self.total,
             "elapsed": round((self._tend or time.time()) - self.t0, 1) if self.t0 else 0,
-            "summary": summarize(recs),
+            "summary": summarize(recs, self._tier_fn),
         }
 
 
@@ -369,3 +388,97 @@ def scan_history(limit: int = 60) -> dict:
     for model, bucket in per_model.items():
         models[model] = summarize(list(bucket.values()), tier_of)
     return {"runs": run_rows, "models": models}
+
+
+# ---------- 排位赛（锚卷）聚合 ----------
+
+def load_anchor(anchor_id: str) -> dict:
+    f = ROOT / "bank" / "anchors" / f"{anchor_id}.json"
+    if not f.exists():
+        raise FileNotFoundError(f"锚卷不存在: {f}")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
+def anchor_history(anchor_id: str) -> dict:
+    """锚卷排位赛历史：榜单 + 时间序列 + 漂移检测。
+
+    与 scan_history 不同：同模型多 run 全部保留（时间序列），榜单取每模型
+    最新一轮；难度档用锚卷 per_task 冻结快照而非现池口径（重切后旧卷仍按
+    冻结时档位显示）。漂移 = 同模型最新两轮逐题判定翻转清单（pass↔非pass），
+    只列清单不下结论——温度采样下单题翻转本属正常，是否环境漂移由人判读。
+    """
+    doc = load_anchor(anchor_id)
+    snap = doc.get("per_task") or {}
+
+    def tier_of(bid: str) -> str:
+        return (snap.get(bid) or {}).get("tier") or "unrated"
+
+    runs = []  # [{run_id, date, model, recs}]（旧→新）
+    for d in sorted(RESULTS.glob("run-*")):
+        cf = d / "config.json"
+        if not cf.exists():
+            continue
+        try:
+            cfg = json.loads(cf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        # webapp config 记 anchor_id，CLI config 记 anchor（与 --view 同风格）；聚合层两者都认
+        if (cfg.get("anchor_id") or cfg.get("anchor")) != anchor_id:
+            continue
+        recs = []
+        f = d / "results.jsonl"
+        if f.exists():
+            for line in f.read_text(encoding="utf-8").splitlines():
+                try:
+                    recs.append(json.loads(line))
+                except Exception:
+                    continue
+        if not recs:
+            continue
+        s = d.name  # run-YYYYMMDD-HHMMSS
+        date = f"{s[4:8]}-{s[8:10]}-{s[10:12]}" if len(s) >= 18 and s[4:12].isdigit() else "?"
+        runs.append({"run_id": d.name, "date": date, "model": recs[0].get("model", "?"), "recs": recs})
+
+    models: dict[str, list[dict]] = {}
+    for r in runs:
+        models.setdefault(r["model"], []).append(r)
+
+    out_models, drift = {}, {}
+    for model, rs in models.items():
+        rows = []
+        for r in rs:
+            # 域拆分（锚卷跨四域；error 作废测量不计分母，与 summarize 口径一致）
+            doms: dict[str, dict] = {}
+            for rec in r["recs"]:
+                dom = (snap.get(rec.get("bank_id", "")) or {}).get("domain", "?")
+                cell = doms.setdefault(dom, {"n": 0, "pass": 0})
+                v = (rec.get("score") or {}).get("verdict", "?").split(":")[0]
+                if v != "error":
+                    cell["n"] += 1
+                if v == "pass":
+                    cell["pass"] += 1
+            for c in doms.values():
+                c["rate"] = round(c["pass"] / c["n"], 4) if c["n"] else 0
+            rows.append({"run_id": r["run_id"], "date": r["date"],
+                         **summarize(r["recs"], tier_of), "domains": doms})
+        out_models[model] = rows
+        if len(rs) >= 2:
+            prev = {x.get("bank_id"): (x.get("score") or {}).get("verdict", "?") for x in rs[-2]["recs"]}
+            cur = {x.get("bank_id"): (x.get("score") or {}).get("verdict", "?") for x in rs[-1]["recs"]}
+            flips = []
+            for bid, now in cur.items():
+                was = prev.get(bid)
+                if was is None or was == now:
+                    continue
+                was_b, now_b = was.split(":")[0], now.split(":")[0]
+                if was_b == "error" or now_b == "error":
+                    continue
+                if was_b == "pass" or now_b == "pass":
+                    flips.append({"bank_id": bid, "was": was, "now": now, "tier": tier_of(bid)})
+            drift[model] = {"runs": len(rs), "flips": flips}
+
+    board = sorted(({"model": m, **rows[-1]} for m, rows in out_models.items() if rows),
+                   key=lambda x: -(x.get("rate") or 0))
+    return {"anchor_id": anchor_id, "n_tasks": len(doc.get("bank_ids") or []),
+            "domain_counts": doc.get("domain_counts") or {},
+            "board": board, "models": out_models, "drift": drift}

@@ -185,6 +185,34 @@ uv run python tools/image_cache.py status    # 盘点 + 上限
   Git Bash→wsl.exe 传参时会编码损坏，复杂命令用 heredoc stdin 管道：`wsl.exe -d tikutaku -- bash <<'EOF'`）
 - 已验证闭环：锚题镜像 5.42GB 拉取 + 容器 /testbed 工作区在位（2026-10-10，SWLM-000039）
 
+## 排位赛（锚卷常态化评测，2026-10-19 建成）
+
+固定锚卷定期重跑，产出排行榜 + 时间序列 + 漂移报警。三个用途：多模型锚卷成绩重切难度档（多模型尺替换单模型尺）、模型升级回归测试、题目通过率突变 = 环境漂移报警。
+
+### 生成锚卷（冻结语义：同名不可覆盖，轮换 = 新建 v2）
+```bash
+# 正式卷 anchor-v1：100 题（algo:40 java:20 py:25 perf:15，域内档位贴库存比例，seed 记录在卷内）
+uv run python tools/make_anchor.py --name anchor-v1 --seed 20261019
+# 查看已有锚卷
+uv run python tools/make_anchor.py --list
+```
+锚卷存 `bank/anchors/<name>.json`：bank_ids + per_task 难度档快照（冻结当刻口径，重切后旧卷仍按冻结口径显示）。
+
+### 开赛（手动触发，节奏建议：每周一测 + 模型升级/换 provider 必测）
+- **webapp**：出卷卡顶部选锚卷 → 组卷参数自动置灰 → 开始评测。锚卷模式**强制不跳题**（回归测试语义：同模型重跑同卷不能被 skip-done 跳掉），跑完自动进"⑤ 排位赛榜单"。
+- **CLI**：`harness/run.py --anchor anchor-v1 --model <m> --base-url <u> --api-key <k> --concurrency 4`（CLI run 也写 config.json，与 webapp 同构入榜）。
+- 多模型对比 = 逐个换模型凭据各跑一轮（凭据不落盘红线：不做自动轮换）。100 题 GLM 5 并发约 3 小时，白天跑（校园网 12 点断网）。
+- 榜单卡内容：跨模型排名（每模型最新一轮）+ 各域拆分 + 通过率趋势折线（每模型一线）+ 漂移检测（同模型最新两轮逐题翻转清单；单题翻转属采样波动，集中翻转才查环境）。
+
+### 难度重切（攒够 3+ 模型锚卷成绩后）
+```bash
+uv run python tools/recalibrate_from_anchor.py --anchor anchor-v1            # dry-run 建议表
+uv run python tools/recalibrate_from_anchor.py --anchor anchor-v1 --apply    # 备份后落盘
+```
+- 逻辑：每题多模型通过率 → 域内分位切档（algo 五档 / 三源三档）→ 只动锚卷内的题。
+- 语义提示：三源旧尺是"快pass/慢pass/失败"（单模型 GLM 行为尺），重切后是"多模型通过率尺"，两把尺都有效，报告注明用的是哪把。
+- `--apply` 自动备份到 `bank/backups/index-<ts>.parquet` + 清单 `logs/recalibrate_<ts>.json`；回滚 = 备份覆盖 `bank/index.parquet`；**生效需重启 webapp**（池有模块级缓存）。
+
 ## 防污染红线
 - 任务环境一律经 `strip_vcs.py`（剥 .git；agent 翻 git log 抄 patch 是实证过的作弊路径）
 - 金标只存 `seals/`（加密），predictions 临时文件检完即删

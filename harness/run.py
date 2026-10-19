@@ -40,10 +40,13 @@ def load_selection(args) -> list[dict]:
         ids = [r["bank_id"] for r in _json.loads(Path(args.report).read_text(encoding="utf-8"))]
     elif args.view:
         ids = _json.loads((ROOT / "bank" / "views" / f"{args.view}.json").read_text(encoding="utf-8"))
+    elif getattr(args, "anchor", None):
+        doc = _json.loads((ROOT / "bank" / "anchors" / f"{args.anchor}.json").read_text(encoding="utf-8"))
+        ids = doc["bank_ids"]
     elif args.bank_ids:
         ids = args.bank_ids.split(",")
     else:
-        raise SystemExit("需要 --view / --report / --bank-ids 之一")
+        raise SystemExit("需要 --view / --report / --bank-ids / --anchor 之一")
     if args.n:
         ids = ids[: args.n]
     if args.skip_done:
@@ -250,6 +253,7 @@ def write_leaderboard(run_dir: Path, records: list[dict]) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--view"); ap.add_argument("--report"); ap.add_argument("--bank-ids")
+    ap.add_argument("--anchor", help="排位赛锚卷名（bank/anchors/<name>.json），与 --view/--bank-ids 互斥")
     ap.add_argument("-n", "--n", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=1, help="并发 API 请求数")
     ap.add_argument("--skip-done", action="store_true", help="跳过已有有效判定的题（断点续跑）")
@@ -267,11 +271,20 @@ def main() -> int:
                     help="思考强度（默认 max=评测统一拉满；各家参数名自动映射，端点不认自动降级）")
     ap.add_argument("--tool", help="CLI 适配器指定工具: claude/codex/zcode")
     args = ap.parse_args()
+    sel = [x for x in (args.view, args.report, args.bank_ids, args.anchor) if x]
+    if len(sel) > 1:
+        ap.error("--view / --report / --bank-ids / --anchor 只能给一个")
 
     from env import RESULTS
     run_id = time.strftime("run-%Y%m%d-%H%M%S")
     run_dir = RESULTS / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    # 配置快照（剔除密钥）：CLI run 此前不写 config.json，跨 run 对比只能翻
+    # results.jsonl 的 model 字段；排位赛按 anchor_id 聚合依赖此文件
+    (run_dir / "config.json").write_text(
+        json.dumps({k: v for k, v in vars(args).items() if k != "api_key"},
+                   ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8")
 
     tasks = load_selection(args)
     records: list[dict] = []

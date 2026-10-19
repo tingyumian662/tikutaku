@@ -72,6 +72,7 @@ class StartReq(BaseModel):
     total: int = 30
     ratios: list[float] = [20, 30, 30, 15, 5]
     seed: int | None = None       # 固定种子 = 组卷可复现
+    anchor_id: str = ""           # 排位赛锚卷：非空则用冻结题集，忽略组卷参数且强制不跳题
     # 专家参数
     concurrency: int = 4
     skip_done: bool = True
@@ -147,8 +148,16 @@ def start_run(req: StartReq):
     miss = _require_conn(req.model, req.api_key, req.base_url)
     if miss:
         raise HTTPException(400, miss)
+    anchor_id = (req.anchor_id or "").strip()
+    if anchor_id:
+        try:
+            a = runner_core.load_anchor(anchor_id)
+        except FileNotFoundError as e:
+            raise HTTPException(400, str(e))
+        if req.view:
+            raise HTTPException(400, "锚卷模式与自定义视图互斥，二选一")
     ratios = [max(0.0, float(r)) for r in (req.ratios or [])][:5]
-    if not req.view and sum(ratios) <= 0:
+    if not anchor_id and not req.view and sum(ratios) <= 0:
         raise HTTPException(400, "难度配比不能全为 0")
     # 启动前探测协议：两个兼容协议都不通则直接报错，不进跑批
     try:
@@ -160,16 +169,18 @@ def start_run(req: StartReq):
     cfg = {
         "view": req.view or None, "domain": (req.domain if req.domain in runner_core.DOMAINS else "algo"),
         "total": int(req.total), "ratios": ratios,
-        "seed": req.seed, "concurrency": max(1, min(req.concurrency, 8)),
+        "seed": req.seed, "anchor_id": (anchor_id or None),
+        "concurrency": max(1, min(req.concurrency, 8)),
         "skip_done": req.skip_done,
         "model": req.model.strip(), "protocol": proto,
         "base_url": req.base_url.strip(), "api_key": req.api_key.strip(),
         "max_tokens": max(256, min(int(req.max_tokens), 131072)),
         "temperature": max(0.0, min(float(req.temperature), 2.0)),
         "thinking_level": req.thinking_level if req.thinking_level in ("max", "high", "medium", "low", "off") else "max",
-        # 修码/性能题：agent 多轮读文件+本地编译判分，单题时限下限抬到 30 分钟
+        # 修码/性能题：agent 多轮读文件+本地编译判分，单题时限下限抬到 30 分钟；
+        # 锚卷含修码域同理（algo 单题给宽上限不影响其速度）
         "task_timeout": (max(1800.0, min(float(req.task_timeout), 7200))
-                         if req.domain in runner_core.DOMAINS and req.domain != "algo"
+                         if anchor_id or (req.domain in runner_core.DOMAINS and req.domain != "algo")
                          else max(30.0, min(float(req.task_timeout), 7200))),
         "score_timeout": max(3, min(int(req.score_timeout), 300)),
         "system_extra": req.system_extra[:4000],
@@ -201,6 +212,34 @@ def state(since: int = 0):
 @app.get("/api/history")
 def history():
     return runner_core.scan_history()
+
+
+@app.get("/api/anchors")
+def anchors():
+    """排位赛锚卷清单（冻结题集）。"""
+    import json
+    out = []
+    d = ROOT / "bank" / "anchors"
+    if d.exists():
+        for f in sorted(d.glob("*.json")):
+            try:
+                a = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            out.append({"id": a.get("anchor_id", f.stem), "n": len(a.get("bank_ids") or []),
+                        "created_at": a.get("created_at"), "domain_counts": a.get("domain_counts") or {}})
+    return out
+
+
+@app.get("/api/anchor-history")
+def anchor_history(anchor: str = ""):
+    """某锚卷的排位赛榜单 + 时间序列 + 漂移检测。"""
+    if not anchor.strip():
+        raise HTTPException(400, "缺少 anchor 参数")
+    try:
+        return runner_core.anchor_history(anchor.strip())
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
 
 
 def main() -> int:
