@@ -28,6 +28,7 @@ MODEL_CUTOFFS = {
     "glm-5.3": "2025-12",
     "glm-5.3-flash": "2025-12",
     # GLM-5.5 发布后在此登记截止日，再跑 anchor-v1 同卷对比
+    "deepseek-flash": "2026-05",  # V4.1-Flash-1017，官方未公布，用户确认按 2026-05 登记
     "deepseek-v4-pro": "2025-11",
     "gemini-3.5-pro": "2026-02",
 }
