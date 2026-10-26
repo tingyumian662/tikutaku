@@ -192,9 +192,9 @@ uv run python tools/image_cache.py status    # 盘点 + 上限
 ### 生成锚卷（冻结语义：同名不可覆盖，轮换 = 新建 v2）
 ```bash
 # 正式卷 anchor-v1：100 题（algo:40 java:20 py:25 perf:15，域内档位贴库存比例，seed 记录在卷内）
-uv run python tools/make_anchor.py --name anchor-v1 --seed 20261019
+D:/tikutaku/venv/Scripts/python.exe tools/make_anchor.py --name anchor-v1 --seed 20261019
 # 查看已有锚卷
-uv run python tools/make_anchor.py --list
+D:/tikutaku/venv/Scripts/python.exe tools/make_anchor.py --list
 ```
 锚卷存 `bank/anchors/<name>.json`：bank_ids + per_task 难度档快照（冻结当刻口径，重切后旧卷仍按冻结口径显示）。
 
@@ -205,13 +205,20 @@ uv run python tools/make_anchor.py --list
 - 榜单卡内容：跨模型排名（每模型最新一轮）+ 各域拆分 + 通过率趋势折线（每模型一线）+ 漂移检测（同模型最新两轮逐题翻转清单；单题翻转属采样波动，集中翻转才查环境）。
 
 ### 难度重切（攒够 3+ 模型锚卷成绩后）
+> 2026-10-26 复核：三模型交叉验证档位梯度单调，**标定健康，重切暂无必要**；工具留档备用（kept 题的 tier_rank 重播实现已修复）。
 ```bash
-uv run python tools/recalibrate_from_anchor.py --anchor anchor-v1            # dry-run 建议表
-uv run python tools/recalibrate_from_anchor.py --anchor anchor-v1 --apply    # 备份后落盘
+D:/tikutaku/venv/Scripts/python.exe tools/recalibrate_from_anchor.py --anchor anchor-v1            # dry-run 建议表
+D:/tikutaku/venv/Scripts/python.exe tools/recalibrate_from_anchor.py --anchor anchor-v1 --apply    # 备份后落盘
 ```
-- 逻辑：每题多模型通过率 → 域内分位切档（algo 五档 / 三源三档）→ 只动锚卷内的题。
+- 逻辑：每题多模型通过率 → 域内分位切档（algo 五档 / 三源三档）→ 只动锚卷内的题；tier_rank 对全部参与题重播（kept 题与变档题同一分位坐标系）。
 - 语义提示：三源旧尺是"快pass/慢pass/失败"（单模型 GLM 行为尺），重切后是"多模型通过率尺"，两把尺都有效，报告注明用的是哪把。
 - `--apply` 自动备份到 `bank/backups/index-<ts>.parquet` + 清单 `logs/recalibrate_<ts>.json`；回滚 = 备份覆盖 `bank/index.parquet`；**生效需重启 webapp**（池有模块级缓存）。
+
+### 首轮三模型结论（2026-10-26，详见 docs/anchor-v1-assessment.md）
+- 成绩：glm-5.3-flash 70 / deepseek-flash(V4.1 Flash) 75 / glm-5.3 满血 76（历史判定拼合口径，未整卷重跑——题目当年全量标定过，重跑无信息增量）。deepseek-flash 模型 id 实测 `deepseek-flash`（"deepseek-v4.1-flash" 会 400）。
+- **⚠ 档位语义两套，勿混**：algo 五档 N1=极难~N5=基础；修码三域（java_fix/py_fix/perf）N2=难/N3=中/N4=易。首轮曾把修码域 N2 误读成"易档"得出"标定倒挂"伪结论，已撤回——分析跨域档位时先查映射。
+- 结论：标定健康（三模型梯度单调）；真问题 = **algo 池天花板饱和**（新代 flash 连最难档 N1/N2 都全对，题不够难，重切救不了）→ 补难题源列为后续主候选（SWE-smith 自产题优先级上升）。
+- anchor-v2（2026-10-26 冻结）：algo 30 / java_fix 25 / py_fix 25 / perf 20（修码 70%），seed 20261026，与 v1 重叠 5 题；v1 保留继续服务历史连续对比。
 
 ## 防污染红线
 - 任务环境一律经 `strip_vcs.py`（剥 .git；agent 翻 git log 抄 patch 是实证过的作弊路径）

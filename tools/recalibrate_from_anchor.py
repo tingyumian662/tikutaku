@@ -84,6 +84,7 @@ def plan(anchor_id: str, min_models: int) -> dict:
 
     changes = []
     kept: dict[str, int] = {}
+    ranks: dict[str, float] = {}  # 全部参与题的新 tier_rank（含 kept，对齐同一分位坐标系）
     for domain, n_tier in DOMAIN_TIERS.items():
         dom_ids = [b for b, info in snap.items() if info.get("domain") == domain]
         items = []
@@ -100,16 +101,18 @@ def plan(anchor_id: str, min_models: int) -> dict:
             pos = min(n_tier - 1, int(i * n_tier / n)) if n else 0
             new_level = f"L{pos + 1}"  # pos 0 = 最易 = L1
             old = str(cur_level.get(it["bank_id"], "") or "?")
+            rank = round(i / n, 4) if n else 0.0  # 0=域内最易
+            ranks[it["bank_id"]] = rank
             row = {"bank_id": it["bank_id"], "domain": domain, "cur": old,
                    "new": new_level, "rate": round(it["rate"], 3), "n_models": it["n_models"],
-                   "tier_rank": round(i / n, 4) if n else 0.0}  # 0=域内最易
+                   "tier_rank": rank}
             if new_level != old:
                 changes.append(row)
             else:
                 kept[domain] = kept.get(domain, 0) + 1
     return {"anchor_id": anchor_id, "min_models": min_models, "models": models,
             "n_eligible": len(eligible), "n_total_tasks": len(doc["bank_ids"]),
-            "changes": changes, "kept": kept,
+            "changes": changes, "kept": kept, "ranks": ranks,
             "per_domain": {d: sum(1 for b, i in snap.items() if i.get("domain") == d)
                            for d in DOMAIN_TIERS}}
 
@@ -130,14 +133,16 @@ def apply(p: dict) -> str:
     for row in p["changes"]:
         bid = row["bank_id"]
         lv[bid] = row["new"]
-        tr[bid] = row["tier_rank"]
         touched += 1
-    # kept（档位不变的参与题）也重播 tier_rank 以对齐新尺；锚卷外与数据不足的题不动
+    # tier_rank 对全部参与题重播（含 kept——档位没变但域内分位序变了，须与 changes 同坐标系）
+    for bid, rank in p.get("ranks", {}).items():
+        tr[bid] = rank
+    # 锚卷外与数据不足的题不动
     df["level"] = [lv.get(b, cur) for b, cur in zip(df["bank_id"], df["level"])]
     if "tier_rank" in df.columns:
         df["tier_rank"] = [tr[b] if b in tr else cur for b, cur in zip(df["bank_id"], df["tier_rank"])]
     df.to_parquet(INDEX, index=False)
-    manifest = {"ts": ts, **{k: v for k, v in p.items() if k != "changes"},
+    manifest = {"ts": ts, **{k: v for k, v in p.items() if k not in ("changes", "ranks")},
                 "n_changed": touched, "backup": str(backup), "changes": p["changes"]}
     mf = LOGS / f"recalibrate_{ts}.json"
     mf.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
