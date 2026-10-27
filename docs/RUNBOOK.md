@@ -236,7 +236,11 @@ sample（父题分层抽样，fixed 快照缓存离线）→ inject（S/R 块注
 3. **生成器题面必泄机制**（"insensitive to true labels"式点名换参）：restater 看 diff 重写成纯外部症状（禁提标识符/正确语义），flash QC 严格 JSON 把关，泄漏即拒收。
 
 ### 隔离与激活（M7，另行拍板）
-source=swesmith_local（前缀 SYN-）不在 runner_core.DOMAINS → 天然不入池/锚卷/榜单。激活 = `DOMAINS["py_fix"]["sources"]` 加 "swesmith_local" + `LEVEL_OF_SOURCE` 登记三档尺（两行）。同源偏置：GLM 生成题对 GLM 系受测模型有风格偏置，env_notes 已记 generator/qc 模型名，可按模型排除。run.py bip 分支已带合成题钩子（synth_bug.json 物化 + 跳过 prepare_test + venv 走 env.parent 路由）。algo 对拍轨道（出新算法题 + 参考解/暴力解对拍封金标）已批准待建。
+source=swesmith_local（前缀 SYN-）不在 runner_core.DOMAINS → 天然不入池/锚卷/榜单。激活 = `DOMAINS["py_fix"]["sources"]` 加 "swesmith_local" + `LEVEL_OF_SOURCE` 登记三档尺（两行）。同源偏置：GLM 生成题对 GLM 系受测模型有风格偏置，env_notes 已记 generator/qc 模型名，可按模型排除。run.py bip 分支已带合成题钩子（synth_bug.json 物化 + 跳过 prepare_test + venv 走 env.parent 路由）。~~algo 对拍轨道~~ **造题线 2026-10-27 整体搁置**（用户拍板不再考虑；SYN 44 题留作休眠池）。
+
+## 简单题退役与题库更新政策（2026-10-27 拍板，计划已落盘未执行）
+
+详见 `docs/retire-and-refresh-plan.md`。要点：algo L1/L2/L3 退役 791 题（留 ~100 题不动作基础供应）+ 修码域证据级退役 24 题（v1 三模型全对）；**easy 题以后不再进库**（LCB 增量只收 medium/hard，官方档映射 medium→L3/hard→L4、notes=official-tier 与实测尺分流）；工作区缓存可清（锚卷白名单豁免），题目本体（origin+seals）永不清；冻结锚卷重跑不查 retired（代码级已验证），退役不影响 v1/v2 复测。GLM-5.5 发布 → anchor-v2 首发 → 按结果扩面退役并考虑全难尾 anchor-v3。
 
 ## 防污染红线
 - 任务环境一律经 `strip_vcs.py`（剥 .git；agent 翻 git log 抄 patch 是实证过的作弊路径）
