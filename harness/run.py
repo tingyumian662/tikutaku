@@ -110,10 +110,19 @@ def run_one(task: dict, args) -> dict:
                 rec.update({"answer": "", "usage": {}})
                 rec["score"] = {"verdict": "error:checkout_fail"}
             else:
-                # F2P 测试方法只在 fixed 版存在：用 fixed 的测试文件覆盖工作区（BIP 官方流程）
-                scoring.bip_prepare_test(workdir, task["bank_id"], env.get("repo_url", ""),
-                                         env.get("fixed_commit", ""),
-                                         Path(env["bug_dir"]) if env.get("bug_dir") else None)
+                # 合成题（synth_bug.json 存在）：基线即 fixed 提交，注入文件覆盖后测试已在位，
+                # 跳过 fixed 测试覆盖（否则按新 bank_id 重复拉同款 tarball）
+                synth_bug = TASKS / task["bank_id"] / "synth_bug.json"
+                if synth_bug.exists():
+                    for p, c in json.loads(synth_bug.read_text(encoding="utf-8")).items():
+                        sfp = workdir / p
+                        if sfp.exists():
+                            sfp.write_text(c, encoding="latin-1", newline="\n")
+                else:
+                    # F2P 测试方法只在 fixed 版存在：用 fixed 的测试文件覆盖工作区（BIP 官方流程）
+                    scoring.bip_prepare_test(workdir, task["bank_id"], env.get("repo_url", ""),
+                                             env.get("fixed_commit", ""),
+                                             Path(env["bug_dir"]) if env.get("bug_dir") else None)
                 files = []
                 for p in scoring.d4j_gold_paths(task["bank_id"]):
                     fp = workdir / p
@@ -122,7 +131,7 @@ def run_one(task: dict, args) -> dict:
                 venv = scoring.bip_venv(
                     str(task.get("repo") or "misc"),
                     Path(env["bug_dir"]) / "requirements.txt" if env.get("bug_dir") else None,
-                    bank_id=task["bank_id"])
+                    bank_id=str(env.get("parent") or task["bank_id"]))  # 合成题沿用父题 venv 路由
                 if venv is None:
                     rec.update({"answer": "", "usage": {}})
                     rec["score"] = {"verdict": "error:venv_fail"}

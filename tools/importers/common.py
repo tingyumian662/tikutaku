@@ -25,6 +25,7 @@ SOURCES = {
     "multiswebench_mini": ("MSBM",  "bug_fix", "CC0", "Multi-SWE-bench (ByteDance Seed)"),
     "multiswebench_flash":("MSBF",  "bug_fix", "CC0", "Multi-SWE-bench (ByteDance Seed)"),
     "swesmith":           ("SWSM",  "bug_fix", "MIT", "SWE-smith (SWE-bench)"),
+    "swesmith_local":     ("SYN",   "bug_fix", "未标注(仅内部)", "SWE-smith 方法本地自产（glm-5.3 生成，不入池待激活）"),
     "r2egym_lite":        ("R2EG",  "bug_fix", "未标注(仅内部)", "R2E-Gym"),
     "terminalbench2":     ("TB2",   "terminal", "Apache-2.0", "Terminal-Bench (Harbor)"),
     "terminalbench1":     ("TB1",   "terminal", "Apache-2.0", "Terminal-Bench (Laude Institute)"),
