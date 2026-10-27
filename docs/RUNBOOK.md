@@ -220,6 +220,24 @@ D:/tikutaku/venv/Scripts/python.exe tools/recalibrate_from_anchor.py --anchor an
 - 结论：标定健康（三模型梯度单调）；真问题 = **algo 池天花板饱和**（新代 flash 连最难档 N1/N2 都全对，题不够难，重切救不了）→ 补难题源列为后续主候选（SWE-smith 自产题优先级上升）。
 - anchor-v2（2026-10-26 冻结）：algo 30 / java_fix 25 / py_fix 25 / perf 20（修码 70%），seed 20261026，与 v1 重叠 5 题；v1 保留继续服务历史连续对比。
 
+## SWE-smith 式自产题流水线（2026-10-26/27 建成，py_fix 试点 44 题入库）
+
+在本地 BIP 父题的 fixed 干净基线上，用 GLM-5.3 满血注入"合理但错误"的单文件缺陷，生成全新修码题（防背题新鲜源）。模型分工（用户拍板）：**生成 glm-5.3 / 质检 glm-5.3-flash / 标定 glm-5.3；DeepSeek 不经明确指令不调用**。
+
+### 工具链（tools/smith_*.py，各段独立可续跑，logs/smith/*.jsonl 全程留痕）
+sample（父题分层抽样，fixed 快照缓存离线）→ inject（S/R 块注入+题面；硬校验：AST 签名指纹不变 / ≤10 行 / 语法合法）→ verify（**逐节点**双向鉴别：F2P = 注入版失败 − 基线版失败，快照 finally 还原）→ restate（题面去泄漏重写）→ audit（金标还原复跑必须全过 + flash QC 严格 JSON 把关）→ ingest（seal unified diff 金标 + synth_bug.json + 预物化工作区 + 增量 concat 入库）→ calibrate（三源尺同款：pass 按 completion_tokens 中位切 L1/L2，有效失败 L3）。
+
+### 试点漏斗（93 候选 → 44 入库）
+93 候选（16 项目分层）→ 注入 84 过（91%）→ 双向鉴别 49 过（58%，no_discrimination 属"现有测试测不出注入"的正常损耗）→ 审计 44 过（flaky 金标复跑翻车 2 + QC 泄漏拒 3/抽检 12，抽检合格率 75%）→ SYN-000001..000044 入库。GLM 记账 140 次调用、0.53M 入 / 0.90M 出 tokens（订阅量，现金 ¥0）。标定（满血 max 档）：pass 39/43=91% → L1×20 / L2×19 / L3×4（合成池对满血偏易，难题供给靠 java_fix 与 algo 轨道）。详见 docs/smith-pilot-1.md。
+
+### 三条实现教训（硬校验已固化进工具）
+1. **注入输出必须 SEARCH/REPLACE 块**：整文件重写时满血必插 "# rest unchanged" 省略占位 → 语法崩。max_tokens=32768（thinking 计入输出预算）。
+2. **双向鉴别按逐节点**：测试文件整跑存在环境性失败（scrapy 干净基线 14 失败），整文件基线会误杀好父题。
+3. **生成器题面必泄机制**（"insensitive to true labels"式点名换参）：restater 看 diff 重写成纯外部症状（禁提标识符/正确语义），flash QC 严格 JSON 把关，泄漏即拒收。
+
+### 隔离与激活（M7，另行拍板）
+source=swesmith_local（前缀 SYN-）不在 runner_core.DOMAINS → 天然不入池/锚卷/榜单。激活 = `DOMAINS["py_fix"]["sources"]` 加 "swesmith_local" + `LEVEL_OF_SOURCE` 登记三档尺（两行）。同源偏置：GLM 生成题对 GLM 系受测模型有风格偏置，env_notes 已记 generator/qc 模型名，可按模型排除。run.py bip 分支已带合成题钩子（synth_bug.json 物化 + 跳过 prepare_test + venv 走 env.parent 路由）。algo 对拍轨道（出新算法题 + 参考解/暴力解对拍封金标）已批准待建。
+
 ## 防污染红线
 - 任务环境一律经 `strip_vcs.py`（剥 .git；agent 翻 git log 抄 patch 是实证过的作弊路径）
 - 金标只存 `seals/`（加密），predictions 临时文件检完即删
